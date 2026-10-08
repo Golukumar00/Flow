@@ -86,33 +86,44 @@ internal fun SponsorDetectionReviewUi(
         return
     }
     var showReview by remember(videoId) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val feedbackSaved = stringResource(R.string.sponsor_training_feedback_saved)
+    val feedbackFailed = stringResource(R.string.sponsor_training_feedback_failed)
     IconButton(
         onClick = { showReview = true },
     ) {
         Icon(
             imageVector = Icons.Outlined.RateReview,
             contentDescription = stringResource(R.string.sponsor_training_review),
+            tint = MaterialTheme.colorScheme.onSurface,
         )
     }
     if (showReview) {
         SponsorDetectionReviewSheet(
             durationMs = durationMs,
             state = state,
-            snackbarHostState = snackbarHostState,
             onSeekTo = onSeekTo,
             currentPositionMs = currentPositionMs,
             onRecordFeedback = onRecordFeedback,
+            onFeedbackResult = { verdict, saved ->
+                // The sheet covers the snackbar host, so a verdict with nothing to mark on the sheet
+                // closes it and reports from here, where the host is visible and this scope outlives it.
+                if (saved && verdict.closesReview()) showReview = false
+                scope.launch { snackbarHostState.showSnackbar(if (saved) feedbackSaved else feedbackFailed) }
+            },
             onDismiss = { showReview = false },
         )
     }
 }
+
+private fun SponsorFeedbackVerdict.closesReview(): Boolean =
+    this == SponsorFeedbackVerdict.CONFIRMED_NO_SPONSOR || this == SponsorFeedbackVerdict.MISSED
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SponsorDetectionReviewSheet(
     durationMs: Long,
     state: SponsorDetectionUiState,
-    snackbarHostState: SnackbarHostState,
     onSeekTo: (Long) -> Unit,
     currentPositionMs: () -> Long,
     onRecordFeedback: suspend (
@@ -120,6 +131,7 @@ private fun SponsorDetectionReviewSheet(
         SponsorPredictedSpan?,
         SponsorSpan?,
     ) -> Boolean,
+    onFeedbackResult: (SponsorFeedbackVerdict, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -134,17 +146,13 @@ private fun SponsorDetectionReviewSheet(
                 .toSet()
         }
 
-    val feedbackSaved = stringResource(R.string.sponsor_training_feedback_saved)
-    val feedbackFailed = stringResource(R.string.sponsor_training_feedback_failed)
-
     fun saveWithMessage(
         verdict: SponsorFeedbackVerdict,
         target: SponsorPredictedSpan? = null,
         corrected: SponsorSpan? = null,
     ) {
         scope.launch {
-            val saved = onRecordFeedback(verdict, target, corrected)
-            snackbarHostState.showSnackbar(if (saved) feedbackSaved else feedbackFailed)
+            onFeedbackResult(verdict, onRecordFeedback(verdict, target, corrected))
         }
     }
 
