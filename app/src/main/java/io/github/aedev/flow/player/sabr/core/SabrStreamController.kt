@@ -166,7 +166,7 @@ class SabrStreamController(
 
     fun abort() {
         aborted = true
-        dataSource.close()
+        dataSource.cancel()
     }
 
     fun release() {
@@ -433,13 +433,14 @@ class SabrStreamController(
             return
         }
 
-        sawMediaInResponse = true
         attestationRetried = false
         // Re-sent segments would corrupt the append-only byte pipe — drop duplicates
         if (!sessionState.markSegmentConsumed(header.itag, header.sequenceNumber, header.isInitSegment)) {
             Log.v(TAG, "Duplicate segment dropped: itag=${header.itag}, seq=${header.sequenceNumber}, init=${header.isInitSegment}")
             return
         }
+        // Only a new segment counts: a session that re-sends what it already sent is as wedged as an empty one.
+        sawMediaInResponse = true
 
         val segment =
             SabrSegment(

@@ -4,6 +4,8 @@ import com.google.common.truth.Truth.assertThat
 import io.github.aedev.flow.data.local.SponsorBlockAction
 import io.github.aedev.flow.data.model.SponsorBlockSegment
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -20,6 +22,7 @@ class SponsorBlockHandlerTest {
 
     private fun handler() =
         SponsorBlockHandler(CoroutineScope(UnconfinedTestDispatcher())).apply {
+            setEnabled(true)
             loadSegmentsFromList("sh04x4jzCPw", listOf(outro))
         }
 
@@ -147,6 +150,7 @@ class SponsorBlockHandlerTest {
         segment: SponsorBlockSegment,
         actions: Map<String, SponsorBlockAction> = emptyMap(),
     ) = SponsorBlockHandler(CoroutineScope(UnconfinedTestDispatcher())).apply {
+        setEnabled(true)
         loadSegmentsFromList("video", listOf(segment))
         categoryActions = actions
     }
@@ -189,4 +193,75 @@ class SponsorBlockHandlerTest {
         assertThat(handler.checkForSkip(0L)).isNull()
         assertThat(handler.checkForSkip(5_000L)).isNull()
     }
+
+    @Test
+    fun `a download's stored segments still apply while SponsorBlock fetching is off`() {
+        val handler = SponsorBlockHandler(CoroutineScope(UnconfinedTestDispatcher()))
+        handler.loadSegmentsFromList("video", listOf(segment("sponsor", 10f, 20f)))
+
+        assertThat(handler.checkForSkip(15_000L)).isEqualTo(20_000L)
+        assertThat(handler.sponsorSegments.value).hasSize(1)
+
+        handler.setEnabled(true)
+        assertThat(handler.sponsorSegments.value).hasSize(1)
+    }
+
+    @Test
+    fun `switched off for this video, nothing is skipped and the markers stay`() {
+        val handler = handlerWith(segment("sponsor", 10f, 20f))
+        handler.setDisabledForCurrentVideo(true, currentPositionMs = 0L)
+
+        assertThat(handler.disabledForCurrentVideo.value).isTrue()
+        assertThat(handler.checkForSkip(15_000L)).isNull()
+        assertThat(handler.sponsorSegments.value).hasSize(1)
+    }
+
+    @Test
+    fun `the same video prepared again stays off, the next video starts with the setting`() {
+        val sponsor = segment("sponsor", 10f, 20f)
+        val handler = handlerWith(sponsor)
+        handler.setDisabledForCurrentVideo(true, currentPositionMs = 0L)
+
+        handler.reset()
+        handler.loadSegmentsFromList("video", listOf(sponsor))
+        assertThat(handler.checkForSkip(15_000L)).isNull()
+
+        handler.reset()
+        handler.loadSegmentsFromList("next", listOf(sponsor))
+        assertThat(handler.disabledForCurrentVideo.value).isFalse()
+        assertThat(handler.checkForSkip(15_000L)).isEqualTo(20_000L)
+    }
+
+    @Test
+    fun `switching back on inside a segment leaves that segment alone`() {
+        val handler = handlerWith(segment("sponsor", 10f, 20f))
+        handler.setDisabledForCurrentVideo(true, currentPositionMs = 0L)
+        handler.setDisabledForCurrentVideo(false, currentPositionMs = 12_000L)
+
+        assertThat(handler.checkForSkip(15_000L)).isNull()
+        assertThat(handler.checkForSkip(2_000L)).isNull()
+        assertThat(handler.checkForSkip(15_000L)).isEqualTo(20_000L)
+    }
+
+    @Test
+    fun `a mute segment mutes, and leaving it, switching off or a new video unmutes`() =
+        runTest {
+            val events = mutableListOf<Boolean>()
+            val handler = handlerWith(segment("sponsor", 10f, 20f), mapOf("sponsor" to SponsorBlockAction.MUTE))
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { handler.muteEvent.toList(events) }
+
+            handler.checkForSkip(12_000L)
+            handler.checkForSkip(21_000L)
+            assertThat(events).containsExactly(true, false).inOrder()
+
+            handler.checkForSkip(5_000L)
+            handler.checkForSkip(12_000L)
+            handler.setDisabledForCurrentVideo(true, currentPositionMs = 12_000L)
+            assertThat(events).containsExactly(true, false, true, false).inOrder()
+
+            handler.setDisabledForCurrentVideo(false, currentPositionMs = 0L)
+            handler.checkForSkip(12_000L)
+            handler.loadSegmentsFromList("next", emptyList())
+            assertThat(events).containsExactly(true, false, true, false, true, false).inOrder()
+        }
 }

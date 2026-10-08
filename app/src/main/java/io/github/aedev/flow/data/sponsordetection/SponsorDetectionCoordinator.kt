@@ -6,6 +6,7 @@ import io.github.aedev.flow.data.local.PlayerPreferences
 import io.github.aedev.flow.data.model.SponsorBlockSegment
 import io.github.aedev.flow.data.repository.SponsorBlockFetchResult
 import io.github.aedev.flow.data.repository.SponsorBlockRepository
+import io.github.aedev.flow.player.stream.ResolvedCaption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +19,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import java.io.OutputStream
 
 internal const val ON_DEVICE_UNAVAILABLE_MESSAGE = "On-device detection disabled or model not downloaded"
@@ -30,7 +30,7 @@ internal data class SponsorDetectionLoadResult(
 
 internal class SponsorDetectionCoordinator(
     private val fetchSegments: suspend (String) -> SponsorBlockFetchResult,
-    private val loadCaptions: suspend (List<SubtitlesStream>) -> SponsorTranscriptPayload?,
+    private val loadCaptions: suspend (List<ResolvedCaption>) -> SponsorTranscriptPayload?,
     private val predictStream: suspend (
         String,
         SponsorTranscriptPayload,
@@ -101,7 +101,7 @@ internal class SponsorDetectionCoordinator(
 
     suspend fun evaluate(
         videoId: String,
-        subtitles: List<SubtitlesStream>,
+        subtitles: List<ResolvedCaption>,
         authoritativeSegments: List<SponsorBlockSegment>? = null,
     ): SponsorDetectionLoadResult =
         coroutineScope {

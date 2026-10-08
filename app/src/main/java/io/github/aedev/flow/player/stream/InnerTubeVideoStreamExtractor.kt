@@ -60,6 +60,7 @@ object InnerTubeVideoStreamExtractor {
     private data class ExtractionKey(
         val videoId: String,
         val forceSabr: Boolean,
+        val audioOnly: Boolean,
     )
 
     // The token-free direct client. VISIONOS alone: it is the only client that still serves direct
@@ -117,23 +118,29 @@ object InnerTubeVideoStreamExtractor {
         val liveDashUrl: String? = null,
     )
 
+    /**
+     * @param audioOnly the caller plays only [VideoExtractionResult.audioFormats], so a capped
+     *   video ladder is not worth the SABR quality upgrade's wait.
+     */
     @OptIn(UnstableApi::class)
     suspend fun extract(
         videoId: String,
         forceSabr: Boolean = false,
+        audioOnly: Boolean = false,
     ): VideoExtractionResult? {
-        val key = ExtractionKey(videoId, forceSabr)
+        val key = ExtractionKey(videoId, forceSabr, audioOnly)
         return extractionCoalescer.run(key) {
-            selectStreamsWithBotWallRecovery(videoId, forceSabr)
+            selectStreamsWithBotWallRecovery(videoId, forceSabr, audioOnly)
         }
     }
 
     private suspend fun selectStreamsWithBotWallRecovery(
         videoId: String,
         forceSabr: Boolean,
+        audioOnly: Boolean,
     ): VideoExtractionResult? {
         val failureReasons = mutableListOf<String>()
-        selectStreams(videoId, forceSabr, failureReasons)?.let { return it }
+        selectStreams(videoId, forceSabr, audioOnly, failureReasons)?.let { return it }
         val shouldRecover =
             BotWallRecovery.shouldRotateAndRetry(
                 failureReasons = failureReasons,
@@ -154,7 +161,7 @@ object InnerTubeVideoStreamExtractor {
         Log.w(TAG, "Bot wall on every client for $videoId — rotated visitor identity, retrying once")
         PlayerDiagnostics.logWarning(TAG, "bot wall $videoId: identity rotated, retrying extraction once")
         val retryReasons = mutableListOf<String>()
-        val retried = selectStreams(videoId, forceSabr, retryReasons)
+        val retried = selectStreams(videoId, forceSabr, audioOnly, retryReasons)
         if (retried != null) {
             PlayerDiagnostics.logWarning(TAG, "bot wall retry OK $videoId via ${retried.usedClient.clientName}")
         } else {
@@ -166,6 +173,7 @@ object InnerTubeVideoStreamExtractor {
     private suspend fun selectStreams(
         videoId: String,
         forceSabr: Boolean,
+        audioOnly: Boolean,
         failureReasons: MutableList<String>,
     ): VideoExtractionResult? =
         withContext(Dispatchers.IO) {
@@ -207,7 +215,7 @@ object InnerTubeVideoStreamExtractor {
                     liveDetected = liveDetected,
                     retryTimeoutOnce = true,
                 )?.let { direct ->
-                    val result = maybeUpgradeToSabr(videoId, direct, failureReasons)
+                    val result = if (audioOnly) direct else maybeUpgradeToSabr(videoId, direct, failureReasons)
                     Log.w(TAG, "Extraction OK for $videoId via ${result.usedClient.clientName} (mode=${resultMode(result)})")
                     PlayerDiagnostics.logWarning(TAG, "extract OK $videoId via ${result.usedClient.clientName} mode=${resultMode(result)}")
                     return@withContext result
@@ -233,7 +241,7 @@ object InnerTubeVideoStreamExtractor {
             // 3) Gated direct clients. Playable, but GVS stops serving them ~60s in, so they rank
             // below anything attested and are only reached when the paths above are unavailable.
             tryDirectClients(videoId, GATED_FALLBACK_CLIENTS.ungated(), failureReasons, liveDetected = liveDetected)?.let { direct ->
-                val result = maybeUpgradeToSabr(videoId, direct, failureReasons)
+                val result = if (audioOnly) direct else maybeUpgradeToSabr(videoId, direct, failureReasons)
                 Log.w(TAG, "Extraction OK for $videoId via ${result.usedClient.clientName} (mode=${resultMode(result)}/gated)")
                 PlayerDiagnostics.logWarning(
                     TAG,

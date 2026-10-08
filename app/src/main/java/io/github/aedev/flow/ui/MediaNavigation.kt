@@ -10,14 +10,21 @@ internal const val MUSIC_ARTIST_ROUTE_PATTERN = "artist/{channelId}"
 internal const val MUSIC_ARTIST_ROUTE_ARG = "channelId"
 internal const val MUSIC_PLAYLIST_ROUTE_PATTERN = "musicPlaylist/{playlistId}"
 internal const val MUSIC_PLAYLIST_ROUTE_ARG = "playlistId"
-internal const val MUSIC_PLAYER_ROUTE_PATTERN = "musicPlayer/{videoId}"
+internal const val MUSIC_PLAYER_ROUTE_PATTERN = "musicPlayer/{videoId}?list={list}"
 internal const val MUSIC_PLAYER_ROUTE_ARG = "videoId"
+internal const val MUSIC_PLAYER_LIST_ARG = "list"
 internal const val EQUALIZER_ROUTE = "equalizer"
 
 internal fun musicArtistRoute(artistId: String): String? = artistId.trim().takeIf(String::isNotEmpty)?.let { "artist/${Uri.encode(it)}" }
 
-/** Plays a song in the music player from its id alone, the way a YouTube Music link names it. */
-internal fun musicPlayerRoute(videoId: String): String = "musicPlayer/${Uri.encode(videoId)}"
+/**
+ * Plays a song in the music player from its id alone, the way a YouTube Music link names it, with
+ * the playlist the link plays it from as the queue.
+ */
+internal fun musicPlayerRoute(
+    videoId: String,
+    playlistId: String? = null,
+): String = "musicPlayer/${Uri.encode(videoId)}" + playlistId?.let { "?list=${Uri.encode(it)}" }.orEmpty()
 
 /** Albums and playlists share one page; InnerTube tells them apart by the browse id itself. */
 internal fun musicCollectionRoute(collectionId: String): String? =
@@ -33,11 +40,13 @@ internal fun isOpenMediaPage(
 
 /**
  * The shell's [MediaNavigator]. [beforeNavigate] moves an expanded player out of the way, so a page
- * opened from inside a player sheet is not hidden behind it.
+ * opened from inside a player sheet is not hidden behind it. [shortsExitRoute] is where a video
+ * opened from a Shorts player at the root of the back stack plays, since it cannot play over Shorts.
  */
 internal class FlowMediaNavigator(
     private val navController: NavHostController,
     private val beforeNavigate: () -> Unit,
+    private val shortsExitRoute: () -> String,
 ) : MediaNavigator {
     override fun openChannel(channelId: String) {
         if (channelId.isBlank()) return
@@ -58,16 +67,51 @@ internal class FlowMediaNavigator(
         navController.navigate(EQUALIZER_ROUTE)
     }
 
+    /**
+     * A link that starts a video leaves an expanded player where it is: the new video takes it over,
+     * and collapsing it first would only bounce it down and back up.
+     */
     override fun openLink(link: YouTubeLink): Boolean {
         val destination = linkDestination(link) ?: return false
-        beforeNavigate()
-        when (destination) {
-            is LinkDestination.Video -> navController.navigateToPlayer(destination.videoId)
-            is LinkDestination.Short -> navController.openShorts(ShortsQueueSource.SeededFeed(destination.videoId))
-            is LinkDestination.Page -> navController.navigate(destination.route)
+        when {
+            destination is LinkDestination.Video -> {
+                openPlayer { navController.navigateToPlayer(destination.videoId) }
+            }
+
+            destination is LinkDestination.Page && destination.playsVideo -> {
+                openPlayer { navController.navigate(destination.route) }
+            }
+
+            destination is LinkDestination.Short -> {
+                beforeNavigate()
+                navController.openShorts(ShortsQueueSource.SeededFeed(destination.videoId))
+            }
+
+            destination is LinkDestination.Page -> {
+                beforeNavigate()
+                navController.navigate(destination.route)
+            }
         }
         return true
     }
+
+    /**
+     * The video player stays hidden while a Shorts screen is on top, and the player route hands back
+     * to whatever is under it, so every Shorts screen has to go first or the video would play unseen.
+     */
+    private fun openPlayer(navigate: () -> Unit) {
+        while (isShortsOnTop() && navController.previousBackStackEntry != null) navController.popBackStack()
+        if (isShortsOnTop()) {
+            navController.navigate(shortsExitRoute()) {
+                popUpTo(SHORTS_ROUTE_PATTERN) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+        navigate()
+    }
+
+    private fun isShortsOnTop() = navController.currentBackStackEntry?.destination?.route == SHORTS_ROUTE_PATTERN
 
     private fun openCollection(id: String) = open(MUSIC_PLAYLIST_ROUTE_PATTERN, MUSIC_PLAYLIST_ROUTE_ARG, id, musicCollectionRoute(id))
 

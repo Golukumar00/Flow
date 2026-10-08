@@ -58,6 +58,14 @@ internal object AppearanceIndex {
             section = R.string.settings_section_layout,
             destination = page,
         )
+    val separatePlaylists =
+        SettingEntry(
+            key = "appearance.separate_playlists",
+            title = R.string.settings_separate_playlists_title,
+            summary = R.string.settings_separate_playlists_summary,
+            section = R.string.settings_section_layout,
+            destination = page,
+        )
     val appLogo =
         SettingEntry(
             key = "appearance.app_logo",
@@ -82,6 +90,14 @@ internal object AppearanceIndex {
             section = R.string.settings_section_video_cards,
             destination = page,
         )
+    val cardWatchProgress =
+        SettingEntry(
+            key = "appearance.card_watch_progress",
+            title = R.string.content_settings_video_card_progress_title,
+            summary = R.string.content_settings_video_card_progress_subtitle,
+            section = R.string.settings_section_video_cards,
+            destination = page,
+        )
     val cardMarkWatched =
         SettingEntry(
             key = "appearance.card_mark_watched",
@@ -99,9 +115,11 @@ internal object AppearanceIndex {
             homeColumns,
             musicArtworkSize,
             libraryPreviews,
+            separatePlaylists,
             appLogo,
             groupBadges,
             cardLikeButtons,
+            cardWatchProgress,
             cardMarkWatched,
         )
 }
@@ -281,4 +299,25 @@ internal object DateTimeIndex {
         )
 
     val all = listOf(mode, format, listsOverride, watchOverride, descriptionOverride)
+}
+
+internal object FontIndex {
+    private val page = SettingsDestination.FONT
+
+    val font =
+        SettingEntry(
+            key = "font.choice",
+            title = R.string.settings_font_title,
+            keywords = R.string.settings_keywords_font,
+            destination = page,
+        )
+    val customFile =
+        SettingEntry(
+            key = "font.custom_file",
+            title = R.string.font_choose_file,
+            keywords = R.string.settings_keywords_font,
+            destination = page,
+        )
+
+    val all = listOf(font, customFile)
 }

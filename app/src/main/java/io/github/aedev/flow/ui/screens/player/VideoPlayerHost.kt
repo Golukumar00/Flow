@@ -149,13 +149,8 @@ fun VideoPlayerHost(
     )
 
     PlayerSubtitleEffects(
-        videoId = video.id,
         screenState = screenState,
         savedSubtitleStyle = prefs.savedSubtitleStyle,
-        availableSubtitles = playerState.availableSubtitles,
-        autoEnableSubtitles = prefs.autoEnableSubtitles,
-        preferredSubtitleLanguage = prefs.preferredSubtitleLanguage,
-        rememberSubtitleLanguage = rememberSubtitleLanguage,
     )
 
     PlayerBrightnessRestoreEffect(
@@ -385,7 +380,6 @@ fun VideoPlayerHost(
 
     SubtitleLoadErrorEffect(
         context = context,
-        screenState = screenState,
         subtitles = playerState.availableSubtitles,
         rememberLanguage = rememberSubtitleLanguage,
     )

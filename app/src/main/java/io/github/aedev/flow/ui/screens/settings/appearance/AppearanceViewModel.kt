@@ -1,6 +1,8 @@
 package io.github.aedev.flow.ui.screens.settings.appearance
 
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.github.aedev.flow.data.local.AppFontPreferences
+import io.github.aedev.flow.data.local.AppFontSelection
 import io.github.aedev.flow.data.local.AppUiModePreferences
 import io.github.aedev.flow.data.local.DEFAULT_NAV_TAB_ORDER
 import io.github.aedev.flow.data.local.HomeFeedColumns
@@ -31,11 +33,13 @@ class AppearanceViewModel
         private val uiModePreferences: AppUiModePreferences,
         private val appIconController: AppIconController,
         localDataManager: LocalDataManager,
+        fontPreferences: AppFontPreferences,
     ) : SettingsViewModel() {
         val themeMode = localDataManager.themeMode.asState(ThemeMode.SYSTEM)
         val themeVariant = localDataManager.themeVariant.asState(ThemeVariant.DARK)
         val customThemeName = localDataManager.activeCustomTheme.map { it?.name }.asState(null)
         val interfaceMode = uiModePreferences.mode.asState(AppUiMode.AUTOMATIC)
+        val font = fontPreferences.selection.asState(AppFontSelection())
 
         val homeViewMode = preferences.homeViewMode.asState(HomeViewMode.GRID)
         val homeColumns = preferences.homeFeedColumns.asState(HomeFeedColumns.AUTO)
@@ -44,10 +48,12 @@ class AppearanceViewModel
                 .map { raw -> GridItemSize.entries.firstOrNull { it.name == raw } ?: GridItemSize.BIG }
                 .asState(GridItemSize.BIG)
         val libraryPreviews = preferences.libraryShelfPreviewsEnabled.asState(true)
+        val separatePlaylists = preferences.separatePlaylistKinds.asState(false)
         val appLogo = preferences.showAppLogoIcon.asState(true)
         val groupBadges = preferences.showChannelGroupBadges.asState(false)
         val cardLikeButtons = preferences.videoCardActionsEnabled.asState(false)
         val cardMarkWatched = preferences.videoCardMarkWatchedEnabled.asState(false)
+        val cardWatchProgress = preferences.showWatchProgress.asState(true)
 
         val shortsContent = preferences.shortsContentEnabled.asState(true)
         val navigationVisibility: StateFlow<NavigationVisibility> =
@@ -87,6 +93,8 @@ class AppearanceViewModel
 
         fun setLibraryPreviews(enabled: Boolean) = write { preferences.setLibraryShelfPreviewsEnabled(enabled) }
 
+        fun setSeparatePlaylists(enabled: Boolean) = write { preferences.setSeparatePlaylistKinds(enabled) }
+
         fun setAppLogo(enabled: Boolean) = write { preferences.setShowAppLogoIcon(enabled) }
 
         fun setGroupBadges(enabled: Boolean) = write { preferences.setShowChannelGroupBadges(enabled) }
@@ -94,6 +102,8 @@ class AppearanceViewModel
         fun setCardLikeButtons(enabled: Boolean) = write { preferences.setVideoCardActionsEnabled(enabled) }
 
         fun setCardMarkWatched(enabled: Boolean) = write { preferences.setVideoCardMarkWatchedEnabled(enabled) }
+
+        fun setCardWatchProgress(enabled: Boolean) = write { preferences.setShowWatchProgress(enabled) }
 
         fun setHomeTab(enabled: Boolean) = write { preferences.setHomeNavigationEnabled(enabled) }
 

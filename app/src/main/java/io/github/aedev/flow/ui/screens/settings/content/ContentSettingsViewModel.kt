@@ -17,18 +17,21 @@ class ContentSettingsViewModel
         val refreshOnReselect = preferences.refreshHomeOnReselect.asState(true)
         val continueWatching = preferences.continueWatchingEnabled.asState(true)
         val homeShortsShelf = preferences.homeShortsShelfEnabled.asState(true)
+        val homeSubscriptions = preferences.homeSubscriptionsEnabled.asState(true)
         val hideWatchedHome = preferences.hideWatchedVideosFromHome.asState(false)
 
         val subsVideos = preferences.subscriptionShowVideos.asState(true)
         val subsShorts = preferences.subscriptionShowShorts.asState(true)
         val subsShortsShelf = preferences.shortsShelfEnabled.asState(true)
         val subsLive = preferences.subscriptionShowLive.asState(true)
+        val subsCollaborations = preferences.subscriptionCollaborationsEnabled.asState(true)
         val hideWatchedSubs = preferences.hideWatchedVideosFromSubscriptions.asState(false)
         val hideUnplayableSubs = preferences.hideUnplayableVideosFromSubscriptions.asState(false)
         val subsRefreshOnStartup = preferences.subscriptionRefreshOnStartup.asState(false)
         val subsCheckedCount = preferences.subscriptionShowCheckedVideoCount.asState(true)
 
         val shortsContent = preferences.shortsContentEnabled.asState(true)
+        val channelShortsTab = preferences.channelShortsTabWhenHidden.asState(false)
         val hideWatchedShorts = preferences.hideWatchedShorts.asState(true)
         val removeWatchedWatchLater = preferences.removeWatchedFromWatchLater.asState(false)
         val watchedThreshold = preferences.watchedThreshold.asState(WatchedThreshold.ALMOST_FINISHED)
@@ -46,6 +49,8 @@ class ContentSettingsViewModel
 
         fun setHomeShortsShelf(value: Boolean) = write { preferences.setHomeShortsShelfEnabled(value) }
 
+        fun setHomeSubscriptions(value: Boolean) = write { preferences.setHomeSubscriptionsEnabled(value) }
+
         fun setHideWatchedHome(value: Boolean) = write { preferences.setHideWatchedVideosFromHome(value) }
 
         fun setSubsVideos(value: Boolean) = write { preferences.setSubscriptionShowVideos(value) }
@@ -56,6 +61,8 @@ class ContentSettingsViewModel
 
         fun setSubsLive(value: Boolean) = write { preferences.setSubscriptionShowLive(value) }
 
+        fun setSubsCollaborations(value: Boolean) = write { preferences.setSubscriptionCollaborationsEnabled(value) }
+
         fun setHideWatchedSubs(value: Boolean) = write { preferences.setHideWatchedVideosFromSubscriptions(value) }
 
         fun setHideUnplayableSubs(value: Boolean) = write { preferences.setHideUnplayableVideosFromSubscriptions(value) }
@@ -65,6 +72,8 @@ class ContentSettingsViewModel
         fun setSubsCheckedCount(value: Boolean) = write { preferences.setSubscriptionShowCheckedVideoCount(value) }
 
         fun setShortsContent(value: Boolean) = write { preferences.setShortsContentEnabled(value) }
+
+        fun setChannelShortsTab(value: Boolean) = write { preferences.setChannelShortsTabWhenHidden(value) }
 
         fun setHideWatchedShorts(value: Boolean) = write { preferences.setHideWatchedShorts(value) }
 

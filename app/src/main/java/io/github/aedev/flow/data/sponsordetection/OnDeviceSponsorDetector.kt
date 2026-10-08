@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import io.github.aedev.flow.data.model.SponsorBlockSegment
+import io.github.aedev.flow.player.stream.ResolvedCaption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -14,7 +15,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.LongBuffer
@@ -43,7 +43,7 @@ internal class OnDeviceSponsorDetector(
 
     suspend fun predict(
         videoId: String,
-        subtitles: List<SubtitlesStream>,
+        subtitles: List<ResolvedCaption>,
     ): List<SponsorBlockSegment> {
         val transcript = captionLoader.load(subtitles) ?: return emptyList()
         return predict(videoId, transcript).playbackSegments

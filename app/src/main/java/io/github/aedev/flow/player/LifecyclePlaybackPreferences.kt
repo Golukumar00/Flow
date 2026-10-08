@@ -9,13 +9,17 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** The playback preferences the activity lifecycle callbacks have to read synchronously. */
+/**
+ * The playback preferences read synchronously: by the activity lifecycle callbacks, and by opening a
+ * video, which has to know whether to start before any stream is handed to the player.
+ */
 data class LifecyclePlaybackSettings(
     val autoPipEnabled: Boolean = false,
     val backgroundPlayEnabled: Boolean = false,
     val shortsBackgroundPlay: Boolean = false,
     val shortsPipEnabled: Boolean = false,
     val clipboardLinkOpenEnabled: Boolean = true,
+    val startVideosPaused: Boolean = false,
 )
 
 /**
@@ -65,12 +69,14 @@ private fun PlayerPreferences.lifecyclePlaybackSettings(): Flow<LifecyclePlaybac
         shortsBackgroundPlay,
         shortsPipEnabled,
         clipboardLinkOpenEnabled,
-    ) { autoPip, backgroundPlay, shortsBackgroundPlay, shortsPip, clipboardLinkOpen ->
+        startVideosPaused,
+    ) { values ->
         LifecyclePlaybackSettings(
-            autoPipEnabled = autoPip,
-            backgroundPlayEnabled = backgroundPlay,
-            shortsBackgroundPlay = shortsBackgroundPlay,
-            shortsPipEnabled = shortsPip,
-            clipboardLinkOpenEnabled = clipboardLinkOpen,
+            autoPipEnabled = values[0],
+            backgroundPlayEnabled = values[1],
+            shortsBackgroundPlay = values[2],
+            shortsPipEnabled = values[3],
+            clipboardLinkOpenEnabled = values[4],
+            startVideosPaused = values[5],
         )
     }

@@ -184,6 +184,43 @@ class VideoPlayerViewModelEntryPointsTest {
         }
 
     @Test
+    fun `with start paused on an opened video is loaded and waits for play`() =
+        runTest {
+            harness.startVideosPaused = true
+            every { harness.playerManager.isStartPausedArmed("local_1") } returns true
+            val viewModel = newViewModel()
+
+            viewModel.playLocalVideo(video("local_1"), "content://media/external/video/1")
+            advanceUntilIdle()
+
+            verify { harness.playerManager.armStartPaused("local_1") }
+            verify { harness.playerManager.playLocalFile("local_1", "content://media/external/video/1", any(), any(), any()) }
+            verify(exactly = 0) { harness.playerManager.play() }
+        }
+
+    @Test
+    fun `a video that follows another is never held paused`() =
+        runTest {
+            harness.startVideosPaused = true
+            val viewModel = newViewModel()
+
+            viewModel.playVideo(video("next_1"), userOpened = false)
+
+            verify { harness.playerManager.armStartPaused(null) }
+            verify(exactly = 0) { harness.playerManager.armStartPaused("next_1") }
+        }
+
+    @Test
+    fun `with start paused off an opened video plays as before`() =
+        runTest {
+            val viewModel = newViewModel()
+
+            viewModel.playVideo(video("open_1"))
+
+            verify { harness.playerManager.armStartPaused(null) }
+        }
+
+    @Test
     fun `syncing with a local video that is already playing keeps its state`() =
         runTest {
             val viewModel = newViewModel()
@@ -282,7 +319,7 @@ class VideoPlayerViewModelEntryPointsTest {
             harness.playerState.value = EnhancedPlayerState(currentVideoId = video.id, isPrepared = true, isPlaying = true)
 
             viewModel.expandPlayerRequest.test {
-                viewModel.playVideo(video, startPositionOverrideMs = 0L)
+                viewModel.playVideo(video, startPositionMs = 0L)
                 awaitItem()
                 cancelAndIgnoreRemainingEvents()
             }
@@ -301,7 +338,7 @@ class VideoPlayerViewModelEntryPointsTest {
             harness.playerState.value = EnhancedPlayerState(currentVideoId = video.id, isPrepared = true, isPlaying = false)
 
             viewModel.expandPlayerRequest.test {
-                viewModel.playVideo(video, startPositionOverrideMs = 65_000L)
+                viewModel.playVideo(video, startPositionMs = 65_000L)
                 awaitItem()
                 cancelAndIgnoreRemainingEvents()
             }
@@ -421,7 +458,6 @@ class VideoPlayerViewModelEntryPointsTest {
             val video = video("vid_a")
             viewModel.playLocalVideo(video, "content://media/1")
             advanceUntilIdle()
-            viewModel.toggleSubtitles(true)
             viewModel.startBackgroundPlayback()
 
             viewModel.clearVideo()
@@ -442,20 +478,6 @@ class VideoPlayerViewModelEntryPointsTest {
             assertThat(viewModel.isLoadingComments.value).isFalse()
             assertThat(viewModel.hasMoreComments.value).isFalse()
             assertThat(viewModel.canGoPrevious.value).isFalse()
-        }
-
-    @Test
-    fun `toggleSubtitles only flips the ui flag`() =
-        runTest {
-            val viewModel = newViewModel()
-
-            viewModel.toggleSubtitles(true)
-            assertThat(viewModel.uiState.value.subtitlesEnabled).isTrue()
-
-            viewModel.toggleSubtitles(false)
-            assertThat(viewModel.uiState.value.subtitlesEnabled).isFalse()
-            verify(exactly = 0) { harness.playerManager.toggleLoop(any()) }
-            verify(exactly = 0) { harness.playerManager.setAutoplayCandidates(any(), any(), any()) }
         }
 
     @Test

@@ -1,5 +1,6 @@
 package io.github.aedev.flow.data.subscriptions
 
+import android.util.Log
 import io.github.aedev.flow.data.model.Video
 import io.github.aedev.flow.innertube.YouTube
 import io.github.aedev.flow.innertube.pages.channel.ChannelPage
@@ -9,6 +10,8 @@ import io.github.aedev.flow.innertube.pages.renderer.FeedItem
 import io.github.aedev.flow.innertube.pages.renderer.FeedItemOwner
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,12 +29,16 @@ data class ChannelUploads(
  *
  * A tab whose first page fails fails the whole channel: an empty tab and an unreachable one must
  * not look alike, or the feed drops the channel's rows as if it had stopped uploading (#1094).
+ *
+ * A network failure (a DNS miss, a timeout, a dropped connection) gets one spaced retry: the
+ * fallback browses several channels at once, and one blip otherwise fails all of them (#1186).
  */
 @Singleton
 class ChannelUploadsClient internal constructor(
     private val landing: suspend (channelId: String) -> Result<ChannelPage>,
     private val tab: suspend (browseId: String, params: String, owner: FeedItemOwner, kind: ChannelTabKind) -> Result<ChannelTabContent>,
     private val continuation: suspend (token: String, owner: FeedItemOwner, kind: ChannelTabKind) -> Result<ChannelTabContent>,
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
     @Inject
     constructor() : this(
@@ -49,6 +56,18 @@ class ChannelUploadsClient internal constructor(
         channelId: String,
         notBeforeMillis: Long,
         limits: ChannelUploadLimits = ChannelUploadLimits(),
+    ): Result<ChannelUploads> {
+        val first = fetchOnce(channelId, notBeforeMillis, limits)
+        val error = first.exceptionOrNull() as? IOException ?: return first
+        Log.w(TAG, "[$channelId] Channel tabs network error, retrying once: ${error::class.simpleName}: ${error.message}")
+        sleep(NETWORK_RETRY_DELAY_MS)
+        return fetchOnce(channelId, notBeforeMillis, limits)
+    }
+
+    private suspend fun fetchOnce(
+        channelId: String,
+        notBeforeMillis: Long,
+        limits: ChannelUploadLimits,
     ): Result<ChannelUploads> =
         runCatching {
             val page = landing(channelId).getOrThrow()
@@ -85,6 +104,23 @@ class ChannelUploadsClient internal constructor(
             }
         }
 
+    /**
+     * The newest uploads for Home: the first page of the Videos tab. No landing browse, since the
+     * subscription already names the channel. Reels are left to RSS, which dates them.
+     */
+    suspend fun latest(
+        owner: FeedItemOwner,
+        videos: Int,
+    ): Result<List<Video>> =
+        runCatching {
+            val params = ChannelTabKind.Videos.defaultParams ?: error("No params for the Videos tab")
+            tab(owner.id, params, owner, ChannelTabKind.Videos)
+                .getOrThrow()
+                .items
+                .uploads()
+                .take(videos)
+        }
+
     private suspend fun readTab(
         channelId: String,
         params: String?,
@@ -111,10 +147,16 @@ class ChannelUploadsClient internal constructor(
         mapNotNull { item ->
             when (item) {
                 is FeedItem.VideoItem -> item.video
-                is FeedItem.ShortItem -> item.video.copy(isShort = true)
+
+                // A Shorts row carries no date, and the model's default is "now": without this an old
+                // reel off the tab would sort as the newest upload (#1175). Unknown is 0.
+                is FeedItem.ShortItem -> item.video.copy(isShort = true, timestamp = item.video.datedTimestamp())
+
                 else -> null
             }
         }.filter { it.id.isNotBlank() }
+
+    private fun Video.datedTimestamp(): Long = if (uploadDate.isBlank()) 0L else timestamp
 
     private fun List<Video>.reachesInto(notBeforeMillis: Long): Boolean {
         val oldest = lastOrNull { it.timestamp > 0L } ?: return false
@@ -122,6 +164,8 @@ class ChannelUploadsClient internal constructor(
     }
 
     private companion object {
+        const val TAG = "ChannelUploads"
+        const val NETWORK_RETRY_DELAY_MS = 1_500L
         val UPLOAD_TABS = setOf(ChannelTabKind.Videos, ChannelTabKind.Shorts, ChannelTabKind.Live)
     }
 }

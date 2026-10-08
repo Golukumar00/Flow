@@ -29,16 +29,29 @@ object PictureInPictureHelper {
     const val ACTION_PLAY = "io.github.aedev.flow.action.PIP_PLAY"
     const val ACTION_PAUSE = "io.github.aedev.flow.action.PIP_PAUSE"
     const val ACTION_NEXT = "io.github.aedev.flow.action.PIP_NEXT"
+    const val ACTION_PREVIOUS = "io.github.aedev.flow.action.PIP_PREVIOUS"
     const val ACTION_BACKGROUND_AUDIO = "io.github.aedev.flow.action.PIP_BACKGROUND_AUDIO"
+    const val ACTION_CLOSE = "io.github.aedev.flow.action.PIP_CLOSE"
 
     private const val REQUEST_CODE_PLAY = 1
     private const val REQUEST_CODE_PAUSE = 2
+    private const val REQUEST_CODE_PREVIOUS = 3
     private const val REQUEST_CODE_NEXT = 4
+    private const val REQUEST_CODE_CLOSE = 5
     private const val REQUEST_CODE_BACKGROUND_AUDIO = 6
     private const val ACTION_PICTURE_IN_PICTURE_SETTINGS = "android.settings.PICTURE_IN_PICTURE_SETTINGS"
 
     @Volatile
     var sourceRectHint: android.graphics.Rect? = null
+
+    /** Published by the Shorts pager so the window it enters PiP with already carries skip buttons. */
+    @Volatile
+    var shortsNavigation: PipQueueNavigation? = null
+        private set
+
+    internal fun setShortsNavigation(navigation: PipQueueNavigation?) {
+        shortsNavigation = navigation
+    }
 
     @Volatile
     var currentVideoAspectRatio: Float = DEFAULT_VIDEO_ASPECT_RATIO
@@ -121,10 +134,11 @@ object PictureInPictureHelper {
         autoEnterEnabled: Boolean = false,
         hasNext: Boolean? = null,
         includeBackgroundAction: Boolean = true,
+        navigation: PipQueueNavigation? = null,
     ): Boolean {
         if (!isPipSupported(activity)) return false
 
-        if (includeBackgroundAction && hasNext != null) {
+        if (navigation == null && includeBackgroundAction && hasNext != null) {
             latestRegularVideoHasNext = hasNext
         }
 
@@ -139,6 +153,7 @@ object PictureInPictureHelper {
                     autoEnterEnabled,
                     hasNext = effectiveHasNext,
                     includeBackgroundAction = includeBackgroundAction,
+                    navigation = navigation,
                 )
             activity.enterPictureInPictureMode(params)
         } catch (e: Exception) {
@@ -227,10 +242,11 @@ object PictureInPictureHelper {
         autoEnterEnabled: Boolean = false,
         hasNext: Boolean? = null,
         includeBackgroundAction: Boolean = true,
+        navigation: PipQueueNavigation? = null,
     ) {
         if (!isPipSupported(activity)) return
 
-        if (includeBackgroundAction && hasNext != null) {
+        if (navigation == null && includeBackgroundAction && hasNext != null) {
             latestRegularVideoHasNext = hasNext
         }
 
@@ -245,6 +261,7 @@ object PictureInPictureHelper {
                     autoEnterEnabled,
                     hasNext = effectiveHasNext,
                     includeBackgroundAction = includeBackgroundAction,
+                    navigation = navigation,
                 )
             activity.setPictureInPictureParams(params)
         } catch (e: Exception) {
@@ -260,70 +277,26 @@ object PictureInPictureHelper {
         autoEnterEnabled: Boolean,
         hasNext: Boolean = false,
         includeBackgroundAction: Boolean = true,
+        navigation: PipQueueNavigation? = null,
     ): PictureInPictureParams {
         val safeAspectRatio = sanitizePipAspectRatio(requestedAspectRatio)
         currentVideoAspectRatio = safeAspectRatio
         val aspectRatio = Rational((safeAspectRatio * 1_000).roundToInt(), 1_000)
 
-        val selected =
-            PipActionPolicy
-                .selectActions(
-                    isPlaying = isPlaying,
-                    hasNext = hasNext,
-                    includeBackgroundAction = includeBackgroundAction,
-                )
-        val actions = mutableListOf<RemoteAction>()
-        for (action in selected) {
-            when (action) {
-                PipAction.BACKGROUND_AUDIO -> {
-                    actions.add(
-                        createRemoteAction(
-                            context,
-                            R.drawable.ic_pip_headphones,
-                            context.getString(R.string.player_action_background),
-                            ACTION_BACKGROUND_AUDIO,
-                            REQUEST_CODE_BACKGROUND_AUDIO,
-                        ),
-                    )
-                }
-
-                PipAction.PAUSE -> {
-                    actions.add(
-                        createRemoteAction(
-                            context,
-                            android.R.drawable.ic_media_pause,
-                            context.getString(R.string.pause),
-                            ACTION_PAUSE,
-                            REQUEST_CODE_PAUSE,
-                        ),
-                    )
-                }
-
-                PipAction.PLAY -> {
-                    actions.add(
-                        createRemoteAction(
-                            context,
-                            android.R.drawable.ic_media_play,
-                            context.getString(R.string.play),
-                            ACTION_PLAY,
-                            REQUEST_CODE_PLAY,
-                        ),
-                    )
-                }
-
-                PipAction.NEXT -> {
-                    actions.add(
-                        createRemoteAction(
-                            context,
-                            android.R.drawable.ic_media_next,
-                            context.getString(R.string.next),
-                            ACTION_NEXT,
-                            REQUEST_CODE_NEXT,
-                        ),
-                    )
-                }
+        val maxActions = (context as? Activity)?.maxNumPictureInPictureActions ?: Int.MAX_VALUE
+        val specs =
+            if (navigation != null) {
+                pipActionSpecs(isPlaying, navigation, maxActions)
+            } else {
+                PipActionPolicy
+                    .selectActions(
+                        isPlaying = isPlaying,
+                        hasNext = hasNext,
+                        maxActions = maxActions,
+                        includeBackgroundAction = includeBackgroundAction,
+                    ).map { PipActionSpec(it.toControl()) }
             }
-        }
+        val actions = specs.map { createRemoteAction(context, it) }
 
         val builder =
             PictureInPictureParams
@@ -344,11 +317,41 @@ object PictureInPictureHelper {
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createRemoteAction(
         context: Context,
-        iconResId: Int,
-        title: String,
-        action: String,
-        requestCode: Int,
+        spec: PipActionSpec,
     ): RemoteAction {
+        val (iconResId, titleResId, action, requestCode) =
+            when (spec.control) {
+                PipControl.BACKGROUND_AUDIO -> {
+                    PipButton(
+                        R.drawable.ic_pip_headphones,
+                        R.string.player_action_background,
+                        ACTION_BACKGROUND_AUDIO,
+                        REQUEST_CODE_BACKGROUND_AUDIO,
+                    )
+                }
+
+                PipControl.PREVIOUS -> {
+                    PipButton(
+                        android.R.drawable.ic_media_previous,
+                        R.string.previous,
+                        ACTION_PREVIOUS,
+                        REQUEST_CODE_PREVIOUS,
+                    )
+                }
+
+                PipControl.PLAY -> {
+                    PipButton(android.R.drawable.ic_media_play, R.string.play, ACTION_PLAY, REQUEST_CODE_PLAY)
+                }
+
+                PipControl.PAUSE -> {
+                    PipButton(android.R.drawable.ic_media_pause, R.string.pause, ACTION_PAUSE, REQUEST_CODE_PAUSE)
+                }
+
+                PipControl.NEXT -> {
+                    PipButton(android.R.drawable.ic_media_next, R.string.next, ACTION_NEXT, REQUEST_CODE_NEXT)
+                }
+            }
+        val title = context.getString(titleResId)
         val intent =
             Intent(action).apply {
                 setPackage(context.packageName)
@@ -372,8 +375,23 @@ object PictureInPictureHelper {
             title,
             title,
             pendingIntent,
-        )
+        ).apply { isEnabled = spec.enabled }
     }
+
+    private data class PipButton(
+        val iconResId: Int,
+        val titleResId: Int,
+        val action: String,
+        val requestCode: Int,
+    )
+
+    private fun PipAction.toControl(): PipControl =
+        when (this) {
+            PipAction.BACKGROUND_AUDIO -> PipControl.BACKGROUND_AUDIO
+            PipAction.PLAY -> PipControl.PLAY
+            PipAction.PAUSE -> PipControl.PAUSE
+            PipAction.NEXT -> PipControl.NEXT
+        }
 
     /**
      * Create a broadcast receiver for PiP actions
@@ -383,6 +401,8 @@ object PictureInPictureHelper {
         onPause: () -> Unit,
         onNext: () -> Unit = {},
         onBackgroundAudio: () -> Unit = {},
+        onPrevious: () -> Unit = {},
+        onClose: () -> Unit = {},
     ): BroadcastReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(
@@ -392,7 +412,9 @@ object PictureInPictureHelper {
                 when (intent?.action) {
                     ACTION_PLAY -> onPlay()
                     ACTION_PAUSE -> onPause()
+                    ACTION_PREVIOUS -> onPrevious()
                     ACTION_NEXT -> onNext()
+                    ACTION_CLOSE -> onClose()
                     ACTION_BACKGROUND_AUDIO -> onBackgroundAudio()
                 }
             }
@@ -405,7 +427,9 @@ object PictureInPictureHelper {
         IntentFilter().apply {
             addAction(ACTION_PLAY)
             addAction(ACTION_PAUSE)
+            addAction(ACTION_PREVIOUS)
             addAction(ACTION_NEXT)
             addAction(ACTION_BACKGROUND_AUDIO)
+            addAction(ACTION_CLOSE)
         }
 }

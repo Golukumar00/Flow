@@ -12,6 +12,7 @@ import io.github.aedev.flow.R
 import io.github.aedev.flow.data.local.LikedVideosRepository
 import io.github.aedev.flow.data.local.PlayerPreferences
 import io.github.aedev.flow.data.local.ViewHistory
+import io.github.aedev.flow.data.localmedia.LocalLyricsReader
 import io.github.aedev.flow.data.localmedia.LocalMediaIds
 import io.github.aedev.flow.data.lyrics.LyricsCandidate
 import io.github.aedev.flow.data.lyrics.LyricsHelper
@@ -23,6 +24,7 @@ import io.github.aedev.flow.data.music.model.MusicTrack
 import io.github.aedev.flow.data.newmusic.InnertubeMusicService
 import io.github.aedev.flow.data.recommendation.music.MusicBrainEngine
 import io.github.aedev.flow.data.recommendation.music.onRepeatShelf
+import io.github.aedev.flow.data.scrobble.Scrobbler
 import io.github.aedev.flow.player.EnhancedMusicPlayerManager
 import io.github.aedev.flow.utils.PerformanceDispatcher
 import kotlinx.coroutines.Job
@@ -47,6 +49,8 @@ class MusicPlayerViewModel
         private val likedVideosRepository: LikedVideosRepository,
         private val viewHistory: ViewHistory,
         private val musicBrain: MusicBrainEngine,
+        private val scrobbler: Scrobbler,
+        localLyrics: LocalLyricsReader,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(MusicPlayerUiState())
         val uiState: StateFlow<MusicPlayerUiState> = _uiState.asStateFlow()
@@ -66,7 +70,16 @@ class MusicPlayerViewModel
         private var loadTrackJob: kotlinx.coroutines.Job? = null
         private var pendingSeekPosition: Long? = null
         private var pendingSeekStartedAtMs: Long = 0L
-        private val lyrics = MusicPlayerLyrics(context, viewModelScope, _uiState, lyricsHelper, playerPreferences)
+        private val lyrics =
+            MusicPlayerLyrics(
+                context,
+                viewModelScope,
+                _uiState,
+                lyricsHelper,
+                playerPreferences,
+                localLyrics,
+                downloadManager::getDownloadedTrackPath,
+            )
         private val trackActions =
             MusicPlayerTrackActions(
                 context,
@@ -76,6 +89,8 @@ class MusicPlayerViewModel
                 likedVideosRepository,
                 downloadManager,
                 musicBrain,
+                playerPreferences,
+                scrobbler,
             )
 
         init {
@@ -152,6 +167,7 @@ class MusicPlayerViewModel
                             favoriteJob?.cancel()
                             _uiState.update { state -> state.copy(isLiked = false) }
                             EnhancedMusicPlayerManager.setLiked(false)
+                            fetchLyrics(it.videoId, it.artist, it.title, it.duration, it.album)
                         }
                     }
                 }

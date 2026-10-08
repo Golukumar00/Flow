@@ -29,6 +29,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.aedev.flow.data.local.AppFontPreferences
 import io.github.aedev.flow.data.local.AppUiModePreferences
 import io.github.aedev.flow.data.local.LocalDataManager
 import io.github.aedev.flow.data.playlist.PlaylistImport
@@ -47,6 +48,7 @@ import io.github.aedev.flow.player.LifecyclePlaybackPreferences
 import io.github.aedev.flow.player.MemoryPressurePolicy
 import io.github.aedev.flow.player.PictureInPictureHelper
 import io.github.aedev.flow.player.PipDismissPolicy
+import io.github.aedev.flow.player.PipQueueNavigation
 import io.github.aedev.flow.ui.FlowApp
 import io.github.aedev.flow.ui.LinkDestination
 import io.github.aedev.flow.ui.components.library.message
@@ -63,6 +65,7 @@ import io.github.aedev.flow.ui.startup.SplashController
 import io.github.aedev.flow.ui.startup.ThemeSettings
 import io.github.aedev.flow.ui.startup.splashTone
 import io.github.aedev.flow.ui.startup.themeSettings
+import io.github.aedev.flow.ui.theme.FlowFontFamily
 import io.github.aedev.flow.ui.theme.FlowTheme
 import io.github.aedev.flow.ui.tv.FlowTvApp
 import io.github.aedev.flow.ui.utils.ProvideWindowSizeClass
@@ -105,6 +108,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var appIconController: AppIconController
+
+    @Inject
+    lateinit var appFontPreferences: AppFontPreferences
 
     @Inject
     lateinit var playlistTransfer: dagger.Lazy<PlaylistTransfer>
@@ -221,7 +227,7 @@ class MainActivity : ComponentActivity() {
 
         // Read now, alongside the rest of startup, so the theme is usually known by the first composition.
         val storedTheme = MutableStateFlow<ThemeSettings?>(null)
-        lifecycleScope.launch { dataManager.themeSettings().collect { storedTheme.value = it } }
+        lifecycleScope.launch { dataManager.themeSettings(appFontPreferences).collect { storedTheme.value = it } }
 
         setContent {
             // Nothing is composed until the theme is known: the splash covers the wait, and the app
@@ -247,7 +253,7 @@ class MainActivity : ComponentActivity() {
 
             if (pendingCrashLog != null) {
                 SideEffect { splashController.contentReady = true }
-                FlowTheme(theme) {
+                FlowTheme(theme.copy(fontFamily = FlowFontFamily)) {
                     CrashReportScreen(
                         report = pendingCrashLog!!,
                         onContinue = {
@@ -731,6 +737,7 @@ class MainActivity : ComponentActivity() {
         enterPlayerPictureInPictureMode(
             aspectRatio = shortsPool.activeVideoAspectRatio() ?: PORTRAIT_REEL_ASPECT_RATIO,
             isPlaying = true,
+            navigation = PictureInPictureHelper.shortsNavigation,
         )
     }
 
@@ -748,6 +755,7 @@ class MainActivity : ComponentActivity() {
         isPlaying: Boolean = true,
         openSettingsOnDenied: Boolean = false,
         hasNext: Boolean? = null,
+        navigation: PipQueueNavigation? = null,
     ): Boolean {
         if (cachedAppUiRoot == AppUiRoot.TV) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
@@ -766,6 +774,7 @@ class MainActivity : ComponentActivity() {
                 isPlaying = isPlaying,
                 autoEnterEnabled = false,
                 hasNext = hasNext,
+                navigation = navigation,
             )
         if (!entered) {
             pendingAutoPip = false

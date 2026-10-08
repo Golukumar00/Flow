@@ -14,7 +14,6 @@ import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ParsingException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
-import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.io.IOException
 import java.net.Proxy
 
@@ -79,11 +78,6 @@ class NewPipeUtils(
     init {
         NewPipe.init(downloader)
     }
-
-    fun getSignatureTimestamp(videoId: String): Result<Int> =
-        runCatching {
-            YoutubeJavaScriptPlayerManager.getSignatureTimestamp(videoId)
-        }
 
     fun deobfuscateThrottling(
         videoId: String,
@@ -161,12 +155,6 @@ object NewPipeExtractor {
         nsigThrewThisSession = false
     }
 
-    fun getSignatureTimestamp(videoId: String): Result<Int> {
-        init()
-        return newPipeUtils?.getSignatureTimestamp(videoId)
-            ?: Result.failure(Exception("NewPipeUtils not initialized"))
-    }
-
     @Volatile
     private var nsigThrewThisSession = false
 
@@ -193,23 +181,5 @@ object NewPipeExtractor {
     ): String? {
         init()
         return newPipeUtils?.getStreamUrl(format, videoId)
-    }
-
-    fun newPipePlayer(videoId: String): List<Pair<Int, String>> {
-        init()
-        return try {
-            val streamInfo =
-                StreamInfo.getInfo(
-                    NewPipe.getService(0),
-                    "https://www.youtube.com/watch?v=$videoId",
-                )
-            val streamsList = streamInfo.audioStreams + streamInfo.videoStreams + streamInfo.videoOnlyStreams
-            streamsList.mapNotNull {
-                (it.itagItem?.id ?: return@mapNotNull null) to it.content
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
     }
 }

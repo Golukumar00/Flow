@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -23,6 +24,7 @@ import io.github.aedev.flow.MainActivity
 import io.github.aedev.flow.R
 import io.github.aedev.flow.data.local.AppDatabase
 import io.github.aedev.flow.data.local.PlayerPreferences
+import io.github.aedev.flow.data.local.ThumbnailQuality
 import io.github.aedev.flow.data.local.entity.NotificationEntity
 import io.github.aedev.flow.data.update.AppRelease
 import kotlinx.coroutines.CancellationException
@@ -345,7 +347,7 @@ object NotificationHelper {
                     .setCategory(NotificationCompat.CATEGORY_SOCIAL)
                     .setGroup(GROUP_NEW_VIDEOS)
             v.thumbnailUrl?.let { url ->
-                getBitmapFromUrl(context, url)?.let { bm ->
+                getBitmapFromUrl(context, url, followThumbnailSetting = true)?.let { bm ->
                     builder.setLargeIcon(bm)
                     builder.setStyle(
                         NotificationCompat.BigPictureStyle().bigPicture(bm).bigLargeIcon(null as Bitmap?),
@@ -541,7 +543,7 @@ object NotificationHelper {
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
 
-        thumbnailUrl?.let { getBitmapFromUrl(context, it) }?.let(builder::setLargeIcon)
+        thumbnailUrl?.let { getBitmapFromUrl(context, it, followThumbnailSetting = true) }?.let(builder::setLargeIcon)
 
         try {
             with(NotificationManagerCompat.from(context)) {
@@ -566,15 +568,19 @@ object NotificationHelper {
      * cache the feed already populated instead of refetching through a second image stack.
      * Hardware bitmaps are disabled because notification bitmaps must be parcelable to
      * SystemUI, and INEXACT precision keeps the "never upscale" behaviour of the previous
-     * centerInside/onlyScaleDown request.
+     * centerInside/onlyScaleDown request. With [followThumbnailSetting], a viewer who turned
+     * thumbnails off gets one only if it is already cached.
      */
     suspend fun getBitmapFromUrl(
         context: Context,
         url: String,
+        followThumbnailSetting: Boolean = false,
     ): Bitmap? =
         withContext(Dispatchers.IO) {
             try {
                 if (url.isEmpty()) return@withContext null
+                val cacheOnly =
+                    followThumbnailSetting && PlayerPreferences(context).currentThumbnailQuality() == ThumbnailQuality.OFF
                 val request =
                     ImageRequest
                         .Builder(context)
@@ -583,6 +589,7 @@ object NotificationHelper {
                         .scale(Scale.FIT)
                         .precision(Precision.INEXACT)
                         .allowHardware(false)
+                        .apply { if (cacheOnly) networkCachePolicy(CachePolicy.DISABLED) }
                         .build()
                 (SingletonImageLoader.get(context).execute(request) as? SuccessResult)
                     ?.image

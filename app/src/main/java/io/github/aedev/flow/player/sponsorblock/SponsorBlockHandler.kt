@@ -57,10 +57,17 @@ class SponsorBlockHandler(
     private var currentMutedSegmentUuid: String? = null
     private var currentVideoId: String? = null
 
-    /** True when segments were loaded via [loadSegmentsFromList] (offline DB). Prevents
-     * [setEnabled] from wiping them with a network refresh that will fail offline.
+    /** True when segments were loaded via [loadSegmentsFromList] (offline DB or on-device detection).
+     * They apply even while online fetching is off, and keep [setEnabled] from wiping them with a
+     * network refresh that would fail offline.
      */
     private var offlineSegmentsLoaded: Boolean = false
+
+    /** The one video the user switched SponsorBlock off for. Kept by id, so preparing that video again
+     * keeps it off, and any other video starts with the user's setting. */
+    private var disabledVideoId: String? = null
+    private val _disabledForCurrentVideo = MutableStateFlow(false)
+    val disabledForCurrentVideo: StateFlow<Boolean> = _disabledForCurrentVideo.asStateFlow()
 
     var isEnabled: Boolean = false
         private set
@@ -87,7 +94,7 @@ class SponsorBlockHandler(
                 loadJob?.cancel()
                 _sponsorSegments.value = emptyList()
                 lastSkippedSegmentUuid = null
-                currentMutedSegmentUuid = null
+                releaseMute()
                 offlineSegmentsLoaded = false
             }
         }
@@ -102,10 +109,9 @@ class SponsorBlockHandler(
         videoId: String,
         segments: List<SponsorBlockSegment>,
     ) {
-        currentVideoId = videoId
+        startVideo(videoId)
         loadJob?.cancel()
         lastSkippedSegmentUuid = null
-        currentMutedSegmentUuid = null
         offlineSegmentsLoaded = segments.isNotEmpty()
         _sponsorSegments.value = segments
         Log.d(TAG, "Loaded ${segments.size} offline SponsorBlock segments for video $videoId")
@@ -131,7 +137,7 @@ class SponsorBlockHandler(
      * Load SponsorBlock segments for a video.
      */
     fun loadSegments(videoId: String) {
-        currentVideoId = videoId
+        startVideo(videoId)
 
         if (!isEnabled) {
             Log.d(TAG, "loadSegments($videoId) ignored: SponsorBlock disabled")
@@ -143,7 +149,6 @@ class SponsorBlockHandler(
         loadJob?.cancel()
         _sponsorSegments.value = emptyList()
         lastSkippedSegmentUuid = null
-        currentMutedSegmentUuid = null
 
         loadJob =
             scope.launch {
@@ -199,9 +204,43 @@ class SponsorBlockHandler(
         loadJob?.cancel()
         _sponsorSegments.value = emptyList()
         lastSkippedSegmentUuid = null
-        currentMutedSegmentUuid = null
+        releaseMute()
         currentVideoId = null
         offlineSegmentsLoaded = false
+    }
+
+    /**
+     * Switch SponsorBlock off or back on for the current video only. Turning it back on while inside a
+     * segment leaves that segment alone, so playback does not jump the moment the user taps.
+     */
+    fun setDisabledForCurrentVideo(
+        disabled: Boolean,
+        currentPositionMs: Long,
+    ) {
+        val videoId = currentVideoId ?: return
+        disabledVideoId = videoId.takeIf { disabled }
+        _disabledForCurrentVideo.value = disabled
+        if (disabled) {
+            releaseMute()
+        } else {
+            val posSec = currentPositionMs / 1000f
+            lastSkippedSegmentUuid =
+                _sponsorSegments.value.find { posSec >= it.startTime && posSec < it.endTime }?.uuid
+        }
+    }
+
+    private fun startVideo(videoId: String) {
+        releaseMute()
+        currentVideoId = videoId
+        if (videoId != disabledVideoId) disabledVideoId = null
+        _disabledForCurrentVideo.value = videoId == disabledVideoId
+    }
+
+    private fun releaseMute() {
+        if (currentMutedSegmentUuid != null) {
+            currentMutedSegmentUuid = null
+            _muteEvent.tryEmit(false)
+        }
     }
 
     /**
@@ -210,7 +249,7 @@ class SponsorBlockHandler(
      * MUTE and SHOW_TOAST actions are handled via their respective flows.
      */
     fun checkForSkip(currentPositionMs: Long): Long? {
-        if (!isEnabled && !offlineSegmentsLoaded) return null
+        if ((!isEnabled && !offlineSegmentsLoaded) || _disabledForCurrentVideo.value) return null
         val segments = _sponsorSegments.value
         if (segments.isEmpty()) return null
 

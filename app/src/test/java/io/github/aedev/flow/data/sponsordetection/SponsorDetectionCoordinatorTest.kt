@@ -3,6 +3,7 @@ package io.github.aedev.flow.data.sponsordetection
 import com.google.common.truth.Truth.assertThat
 import io.github.aedev.flow.data.model.SponsorBlockSegment
 import io.github.aedev.flow.data.repository.SponsorBlockFetchResult
+import io.github.aedev.flow.player.stream.ResolvedCaption
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,7 +16,6 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
-import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import java.io.OutputStream
 import java.nio.file.Files
 
@@ -437,7 +437,7 @@ class SponsorDetectionCoordinatorTest {
 
     private fun coordinator(
         fetchSegments: suspend (String) -> SponsorBlockFetchResult = { SponsorBlockFetchResult.Empty },
-        loadCaptions: suspend (List<SubtitlesStream>) -> SponsorTranscriptPayload? = {
+        loadCaptions: suspend (List<ResolvedCaption>) -> SponsorTranscriptPayload? = {
             transcript()
         },
         predictStream: suspend (

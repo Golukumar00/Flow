@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import com.google.common.truth.Truth.assertThat
 import io.github.aedev.flow.data.local.BackupRepository
+import io.github.aedev.flow.data.recommendation.music.FavouriteArtistsStore
 import io.github.aedev.flow.notification.NotificationHelper
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -12,6 +13,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
@@ -29,8 +31,10 @@ class BackupCoordinatorTest {
     private val repository: BackupRepository = mockk(relaxed = true)
     private val first: Uri = mockk()
     private val second: Uri = mockk()
+    private val favourites: FavouriteArtistsStore = mockk(relaxed = true)
 
-    private fun coordinator() = BackupCoordinator(context, repository, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+    private fun coordinator() =
+        BackupCoordinator(context, repository, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), favourites)
 
     @Before
     fun setUp() {
@@ -165,5 +169,28 @@ class BackupCoordinatorTest {
             val outcome = withTimeout(2_000) { coordinator.operation.first { it !is BackupOperation.Running } }
             assertThat(outcome).isInstanceOf(BackupOperation.Succeeded::class.java)
             coVerify(timeout = 2_000) { NotificationHelper.showImportComplete(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `the master backup carries the picked artists and restores them`() =
+        runBlocking {
+            val picks = "[]".toByteArray()
+            coEvery { favourites.export() } returns picks
+            coEvery { repository.exportMasterBackup(first, any(), any(), picks) } returns Result.success(Unit)
+            val restore = slot<suspend (ByteArray) -> Unit>()
+            coEvery { repository.importMasterBackup(second, any(), any(), capture(restore)) } coAnswers {
+                restore.captured(picks)
+                Result.success(Unit)
+            }
+            val coordinator = coordinator()
+
+            coordinator.exportMaster(first)
+            withTimeout(2_000) { coordinator.operation.first { it is BackupOperation.Succeeded } }
+            coordinator.dismiss()
+            coordinator.importMaster(second)
+            withTimeout(2_000) { coordinator.operation.first { it is BackupOperation.Succeeded } }
+
+            coVerify { repository.exportMasterBackup(first, any(), any(), picks) }
+            coVerify { favourites.restore(picks) }
         }
 }

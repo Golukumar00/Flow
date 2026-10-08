@@ -23,6 +23,9 @@ internal fun NavBackStackEntry.flowTab(): FlowTab? = flowTabForDestination(desti
 /** The tab a route handed in from outside the graph (a widget, a shortcut) names, if any. */
 internal fun flowTabForRoute(route: String): FlowTab? = FlowTab.entries.firstOrNull { it.route == route }
 
+/** Set on the Subscriptions entry to open its management view on the Music tab once. */
+internal const val OPEN_MUSIC_SUBSCRIPTIONS = "open_music_subscriptions"
+
 /** Switches tabs the way the bar does: one copy per tab, each keeping its own saved state. */
 internal fun NavController.navigateToTab(
     tab: FlowTab,
@@ -34,6 +37,9 @@ internal fun NavController.navigateToTab(
         restoreState = true
     }
 }
+
+/** The first tab a video opened from the Shorts tab can play over: any visible tab but Shorts itself. */
+internal fun shortsExitRoute(tabs: List<FlowTab>): String = (tabs.firstOrNull { it != FlowTab.Shorts } ?: FlowTab.Home).route
 
 /** Search is a tab, but it keeps the back-button layout of the other search screens, so no bar. */
 internal fun FlowTab?.showsNavigationBar(): Boolean = this != null && this != FlowTab.Search
