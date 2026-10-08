@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
@@ -26,7 +27,7 @@ class SponsorDetectionReviewTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
-    fun reviewChipIsHiddenUntilASuccessfulOptInEvaluation() {
+    fun completedEvaluationCanBeViewedWithoutFeedbackConsent() {
         composeRule.setContent {
             MaterialTheme {
                 SponsorDetectionReviewUi(
@@ -36,12 +37,34 @@ class SponsorDetectionReviewTest {
                     snackbarHostState = remember { SnackbarHostState() },
                     onSeekTo = {},
                     currentPositionMs = { 0 },
+                    onRecordFeedback = { _, _, _ -> error("Feedback must require consent") },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription(context.getString(R.string.sponsor_training_review)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_review_read_only)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_confirm_none)).assertIsNotEnabled()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_add_missed)).assertIsNotEnabled()
+    }
+
+    @Test
+    fun reviewIconIsHiddenWhileInferenceIsRunning() {
+        composeRule.setContent {
+            MaterialTheme {
+                SponsorDetectionReviewUi(
+                    videoId = "video",
+                    durationMs = 60_000,
+                    state = SponsorDetectionUiState(videoId = "video", status = SponsorDetectionStatus.LOADING),
+                    snackbarHostState = remember { SnackbarHostState() },
+                    onSeekTo = {},
+                    currentPositionMs = { 0 },
                     onRecordFeedback = { _, _, _ -> true },
                 )
             }
         }
 
-        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_review)).assertDoesNotExist()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.sponsor_training_review)).assertDoesNotExist()
     }
 
     @Test
@@ -66,7 +89,7 @@ class SponsorDetectionReviewTest {
             }
         }
 
-        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_review)).performClick()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.sponsor_training_review)).performClick()
         composeRule.onNodeWithText(context.getString(R.string.sponsor_training_confirm_none)).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.sponsor_training_add_missed)).assertIsDisplayed()
     }
@@ -94,11 +117,39 @@ class SponsorDetectionReviewTest {
             }
         }
 
-        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_review)).performClick()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.sponsor_training_review)).performClick()
         composeRule.onNodeWithText(context.getString(R.string.sponsor_training_accept)).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.sponsor_training_reject)).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.sponsor_training_edit)).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.sponsor_training_model_only)).assertIsDisplayed()
+    }
+
+    @Test
+    fun predictionsRemainVisibleWithFeedbackActionsDisabledWithoutConsent() {
+        composeRule.setContent {
+            MaterialTheme {
+                SponsorDetectionReviewUi(
+                    videoId = "video",
+                    durationMs = 60_000,
+                    state =
+                        SponsorDetectionUiState(
+                            videoId = "video",
+                            status = SponsorDetectionStatus.READY,
+                            predictions = listOf(SponsorPredictedSpan("p1", 1_000, 2_000, 0.9)),
+                        ),
+                    snackbarHostState = remember { SnackbarHostState() },
+                    onSeekTo = {},
+                    currentPositionMs = { 0 },
+                    onRecordFeedback = { _, _, _ -> error("Feedback must require consent") },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription(context.getString(R.string.sponsor_training_review)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_model_only)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_accept)).assertIsNotEnabled()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_reject)).assertIsNotEnabled()
+        composeRule.onNodeWithText(context.getString(R.string.sponsor_training_edit)).assertIsNotEnabled()
     }
 
     @Test

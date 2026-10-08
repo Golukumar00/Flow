@@ -7,12 +7,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -38,6 +37,7 @@ import io.github.aedev.flow.data.sponsordetection.SponsorFeedbackVerdict
 import io.github.aedev.flow.data.sponsordetection.SponsorPredictedSpan
 import io.github.aedev.flow.data.sponsordetection.SponsorSpan
 import io.github.aedev.flow.player.EnhancedPlayerManager
+import io.github.aedev.flow.utils.sponsorCategoryLabelRes
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -81,19 +81,19 @@ internal fun SponsorDetectionReviewUi(
 ) {
     if (
         state.videoId != videoId ||
-        state.status != SponsorDetectionStatus.READY ||
-        !state.reviewAvailable
+        state.status != SponsorDetectionStatus.READY
     ) {
         return
     }
     var showReview by remember(videoId) { mutableStateOf(false) }
-    AssistChip(
+    IconButton(
         onClick = { showReview = true },
-        label = { Text(stringResource(R.string.sponsor_training_review)) },
-        leadingIcon = { Icon(Icons.Outlined.RateReview, contentDescription = null) },
-        colors = AssistChipDefaults.assistChipColors(),
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.RateReview,
+            contentDescription = stringResource(R.string.sponsor_training_review),
+        )
+    }
     if (showReview) {
         SponsorDetectionReviewSheet(
             durationMs = durationMs,
@@ -155,6 +155,14 @@ private fun SponsorDetectionReviewSheet(
             modifier = Modifier.padding(horizontal = 24.dp),
         )
         Spacer(Modifier.height(12.dp))
+        if (!state.reviewAvailable) {
+            Text(
+                text = stringResource(R.string.sponsor_training_review_read_only),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+        }
         if (state.predictions.isEmpty()) {
             Column(
                 modifier = Modifier.padding(horizontal = 24.dp),
@@ -166,10 +174,10 @@ private fun SponsorDetectionReviewSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { saveWithMessage(SponsorFeedbackVerdict.CONFIRMED_NO_SPONSOR) }) {
+                    Button(enabled = state.reviewAvailable, onClick = { saveWithMessage(SponsorFeedbackVerdict.CONFIRMED_NO_SPONSOR) }) {
                         Text(stringResource(R.string.sponsor_training_confirm_none))
                     }
-                    OutlinedButton(onClick = { addingMissed = true }) {
+                    OutlinedButton(enabled = state.reviewAvailable, onClick = { addingMissed = true }) {
                         Text(stringResource(R.string.sponsor_training_add_missed))
                     }
                 }
@@ -186,6 +194,12 @@ private fun SponsorDetectionReviewSheet(
                                 .padding(horizontal = 24.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        sponsorCategoryLabelRes(prediction.category)?.let { label ->
+                            Text(
+                                text = stringResource(label),
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
                         Text(
                             text =
                                 stringResource(
@@ -210,14 +224,14 @@ private fun SponsorDetectionReviewSheet(
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(
-                                enabled = !reviewed,
+                                enabled = state.reviewAvailable && !reviewed,
                                 onClick = { saveWithMessage(SponsorFeedbackVerdict.ACCEPTED, prediction) },
                             ) { Text(stringResource(R.string.sponsor_training_accept)) }
                             TextButton(
-                                enabled = !reviewed,
+                                enabled = state.reviewAvailable && !reviewed,
                                 onClick = { saveWithMessage(SponsorFeedbackVerdict.REJECTED, prediction) },
                             ) { Text(stringResource(R.string.sponsor_training_reject)) }
-                            TextButton(onClick = { editingTarget = prediction }) {
+                            TextButton(enabled = state.reviewAvailable, onClick = { editingTarget = prediction }) {
                                 Text(stringResource(R.string.sponsor_training_edit))
                             }
                         }
@@ -226,6 +240,7 @@ private fun SponsorDetectionReviewSheet(
                 }
                 item {
                     OutlinedButton(
+                        enabled = state.reviewAvailable,
                         onClick = { addingMissed = true },
                         modifier = Modifier.padding(24.dp),
                     ) {

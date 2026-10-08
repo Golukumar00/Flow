@@ -101,7 +101,11 @@ internal fun Modifier.playerTapGestures(
                     accumulatedForwardMs = if (continuing) accumulatedForwardMs + step else step
                     lastForwardTapTime = now
                     val base = pendingForwardTargetMs?.takeIf { continuing } ?: playerPosition
-                    (base + step).coerceAtMost(currentDuration).also {
+                    val rawTarget = base + step
+                    // Duration is 0 until the player reports one (and can momentarily drop to 0 on
+                    // re-buffer); clamping to it would seek to the start instead of stepping forward.
+                    val clampedForward = if (currentDuration > 0L) rawTarget.coerceAtMost(currentDuration) else rawTarget
+                    clampedForward.also {
                         pendingForwardTargetMs = it
                         currentOnSeekAccumulate((accumulatedForwardMs / 1000L).toInt())
                         currentOnShowSeekForwardChange(true)
@@ -249,6 +253,12 @@ private suspend fun PointerInputScope.detectPlayerTaps(
                 onLongPressReleased()
                 return@awaitEachGesture
             } ?: return@awaitEachGesture
+
+        // An unconsumed swipe still ends in an up. Counting it as a tap let the two swipes that
+        // leave immersive fullscreen read as a centre double-tap and pause playback before PiP.
+        if ((firstUp.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+            return@awaitEachGesture
+        }
 
         onTapUp(firstUp.position)
 

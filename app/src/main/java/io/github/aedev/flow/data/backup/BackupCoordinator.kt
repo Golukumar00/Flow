@@ -3,10 +3,12 @@ package io.github.aedev.flow.data.backup
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.aedev.flow.R
 import io.github.aedev.flow.data.local.BackupRepository
 import io.github.aedev.flow.data.local.LocalDataManager
+import io.github.aedev.flow.data.local.NO_LIKES
 import io.github.aedev.flow.data.recommendation.FlowNeuroEngine
 import io.github.aedev.flow.data.recommendation.music.MusicBrainEngine
 import io.github.aedev.flow.data.stats.RecapBackup
@@ -15,7 +17,11 @@ import io.github.aedev.flow.notification.NotificationHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -207,6 +213,8 @@ class BackupCoordinator
                 repository.importYouTubeWatchHistory(uri)
             }
 
+        fun importYouTubeLikes(uri: Uri) = importCounted(R.string.import_label_youtube_likes) { repository.importYouTubeLikes(uri) }
+
         fun importFreeTubeWatchHistory(uri: Uri) =
             importCounted(R.string.import_label_freetube_watch_history) {
                 repository.importYouTubeWatchHistory(uri)
@@ -324,6 +332,15 @@ class BackupCoordinator
             runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
         }
 
+        private data class ImportProgress(
+            val label: String,
+            val current: Int,
+            val total: Int,
+        )
+
+        @Volatile
+        private var notificationProgress: Channel<ImportProgress>? = null
+
         /** Runs [work] unless another operation is already running; the result replaces the progress. */
         private fun run(
             label: String,
@@ -331,20 +348,59 @@ class BackupCoordinator
             work: suspend () -> BackupOperation,
         ): Boolean {
             if (isRunning) return false
+            val updates = if (notify) Channel<ImportProgress>(Channel.CONFLATED) else null
+            notificationProgress = updates
             progress(label, 0, 0, notify)
             scope.launch {
                 val outcome =
                     try {
-                        work()
+                        coroutineScope {
+                            val notifier =
+                                launch {
+                                    updates?.let { channel ->
+                                        for (update in channel) {
+                                            try {
+                                                NotificationHelper.showImportProgress(context, update.label, update.current, update.total)
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                Log.w("BackupCoordinator", "Import notification failed", e)
+                                            }
+                                        }
+                                    }
+                                }
+                            try {
+                                work()
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                failed(R.string.import_failed_template, e)
+                            } finally {
+                                withContext(NonCancellable) {
+                                    updates?.close()
+                                    notifier.cancelAndJoin()
+                                    notificationProgress = null
+                                    try {
+                                        NotificationHelper.cancelImportNotification(context)
+                                    } catch (e: Exception) {
+                                        Log.w("BackupCoordinator", "Import notification cleanup failed", e)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        _operation.value = BackupOperation.Idle
+                        throw e
+                    }
+                _operation.value = outcome
+                if (notify && outcome is BackupOperation.Succeeded) {
+                    try {
+                        NotificationHelper.showImportComplete(context, label, 0, outcome.message)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        failed(R.string.import_failed_template, e)
+                        Log.w("BackupCoordinator", "Import completion notification failed", e)
                     }
-                NotificationHelper.cancelImportNotification(context)
-                _operation.value = outcome
-                if (notify && outcome is BackupOperation.Succeeded && NotificationHelper.hasNotificationPermission(context)) {
-                    NotificationHelper.showImportComplete(context, label, 0, outcome.message)
                 }
             }
             return true
@@ -358,9 +414,7 @@ class BackupCoordinator
         ) {
             val headline = if (notify) context.getString(R.string.importing_label, label) else label
             _operation.value = BackupOperation.Running(headline, current, total)
-            if (notify && NotificationHelper.hasNotificationPermission(context)) {
-                NotificationHelper.showImportProgress(context, label, current, total)
-            }
+            if (notify) notificationProgress?.trySend(ImportProgress(label, current, total))
         }
 
         private fun failed(
@@ -372,6 +426,7 @@ class BackupCoordinator
             when (error.message) {
                 "no_entries" -> context.getString(R.string.import_no_history_entries)
                 NO_VIDEOS -> context.getString(R.string.import_no_videos)
+                NO_LIKES -> context.getString(R.string.import_no_likes)
                 "no_content" -> context.getString(R.string.import_no_content)
                 "invalid_format" -> context.getString(R.string.import_invalid_format)
                 else -> context.getString(R.string.import_failed_template, error.message ?: context.getString(R.string.unknown_error))

@@ -60,18 +60,18 @@ internal fun compareSponsorSpans(
     val apiSpans =
         apiSegments
             .asSequence()
-            .filter { it.category == "sponsor" }
+            .filter { it.category in SPONSOR_MODEL_CATEGORIES }
             .mapNotNull { segment ->
                 val start = (segment.startTime * 1000).toLong()
                 val end = (segment.endTime * 1000).toLong()
-                if (start < 0 || end <= start) null else SponsorApiSpan(segment.uuid, start, end)
+                if (start < 0 || end <= start) null else SponsorApiSpan(segment.uuid, start, end, segment.category)
             }.toList()
     val candidates =
         predictions
             .flatMap { prediction ->
                 apiSpans.mapNotNull { api ->
                     val overlap = min(prediction.endMs, api.endMs) - max(prediction.startMs, api.startMs)
-                    if (overlap <= 0) return@mapNotNull null
+                    if (overlap <= 0 || prediction.category != api.category) return@mapNotNull null
                     val union = max(prediction.endMs, api.endMs) - min(prediction.startMs, api.startMs)
                     val iou = overlap.toDouble() / union
                     if (iou < minimumIou) null else Triple(prediction, api, iou)
@@ -203,6 +203,17 @@ internal interface SponsorPredictionCache {
     suspend fun put(result: SponsorInferenceResult)
 }
 
+/**
+ * Cache identity for one prediction. It binds the model, the tokenizer and the
+ * on-device decode logic so that changing any of them (window size, thresholds,
+ * minimum span, continuity merge, ...) invalidates previously cached spans.
+ */
+internal fun sponsorPredictionCacheKey(
+    videoId: String,
+    transcriptHash: String,
+    logicVersion: Int = SPONSOR_DECODE_LOGIC_VERSION,
+): String = sha256("$videoId|$SPONSOR_MODEL_SHA256|$SPONSOR_TOKENIZER_SHA256|$logicVersion|$transcriptHash")
+
 internal class SponsorInferenceCache(
     private val directory: File,
     private val json: Json = Json { ignoreUnknownKeys = true },
@@ -263,7 +274,7 @@ internal class SponsorInferenceCache(
     private fun cacheKey(
         videoId: String,
         transcriptHash: String,
-    ): String = sha256("$videoId|$SPONSOR_MODEL_SHA256|$SPONSOR_TOKENIZER_SHA256|$transcriptHash")
+    ): String = sponsorPredictionCacheKey(videoId, transcriptHash)
 
     @Serializable
     private data class CachedInference(
